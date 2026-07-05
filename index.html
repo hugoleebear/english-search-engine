@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>台灣學生專用英文查詢工具 - 完整公開版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Sans TC', 'Arial', sans-serif;
+            background-color: #f4f5f6;
+        }
+        .yahoo-card {
+            background: white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border: 1px solid #e0e0e0;
+        }
+        .yahoo-badge {
+            background-color: #005cac;
+            color: white;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 32px;
+            height: 24px;
+            border-radius: 2px;
+            font-size: 13px;
+            font-weight: 700;
+        }
+        .grammar-badge {
+            background-color: #008800;
+            color: white;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2px 8px;
+            border-radius: 2px;
+            font-size: 13px;
+            font-weight: 700;
+        }
+        .yahoo-red {
+            color: #d83526;
+        }
+        .yahoo-tab {
+            padding: 16px 32px;
+            font-size: 16px;
+            color: #666;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .yahoo-tab.active {
+            color: #005cac;
+            font-weight: 700;
+            border-bottom: 3px solid #005cac;
+        }
+        .loader {
+            border-top-color: #005cac;
+            -webkit-animation: spinner 1.5s linear infinite;
+            animation: spinner 1.5s linear infinite;
+        }
+        @keyframes spinner {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="min-h-screen text-[#333] p-4 sm:p-8">
+
+    <div class="max-w-4xl mx-auto">
+        <!-- Search Bar -->
+        <div class="text-center mb-6">
+            <h1 class="text-2xl font-bold text-[#005cac] mb-2">🎓 英文查詢小幫手 (全功能免金鑰版)</h1>
+            <p class="text-sm text-gray-500">專為國小、國中、高中生設計 · 自動抓取真實例句與紀錄查詢歷史</p>
+        </div>
+
+        <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex gap-3 mb-6">
+            <!-- 優化後的輸入框容器 -->
+            <div class="relative flex-1 flex items-center">
+                <input type="text" id="searchInput" 
+                    class="w-full bg-gray-50 border border-gray-300 rounded pl-4 pr-10 py-3 text-lg focus:outline-none focus:ring-1 focus:ring-[#005cac] focus:border-[#005cac] transition-all"
+                    placeholder="請輸入英文 (例如: difficult, company, book, used to)"
+                    onkeypress="handleKeyPress(event)"
+                    oninput="toggleClearButton()"
+                    onclick="this.select()">
+                <!-- 一鍵清除按鈕 (X) -->
+                <button id="clearBtn" onclick="clearSearchInput()" class="hidden absolute right-3 text-gray-400 hover:text-gray-600 focus:outline-none">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            <button onclick="searchWord()" 
+                class="bg-[#005cac] hover:bg-[#004a8c] text-white px-8 py-3 rounded font-medium transition-colors flex items-center gap-2">
+                查詢
+            </button>
+        </div>
+
+        <!-- 🕒 查詢歷史紀錄區塊 -->
+        <div id="historySection" class="hidden yahoo-card p-4 rounded-lg mb-6">
+            <div class="flex justify-between items-center mb-3 border-b border-gray-100 pb-2">
+                <span class="font-bold text-gray-700 flex items-center gap-1.5 text-sm">
+                    🕒 最近查詢（點擊可快速重查）
+                </span>
+                <button onclick="clearHistory()" class="text-xs text-red-500 hover:text-red-700 font-medium transition-colors">清除紀錄</button>
+            </div>
+            <div id="historyList" class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
+                <!-- 歷史紀錄卡片會動態注入於此 -->
+            </div>
+        </div>
+
+        <!-- Loading State -->
+        <div id="loadingState" class="hidden flex-col items-center justify-center py-16">
+            <div class="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-12 w-12 mb-4"></div>
+            <p class="text-gray-500 font-medium">即時檢索真實例句與翻譯中...</p>
+        </div>
+
+        <!-- Error State -->
+        <div id="errorState" class="hidden bg-red-50 border border-red-200 text-red-700 px-6 py-4 rounded mb-6">
+            <p id="errorMessage" class="font-medium"></p>
+        </div>
+
+        <!-- Result Container -->
+        <div id="resultContainer" class="hidden space-y-6 pb-12">
+        </div>
+    </div>
+
+    <script>
+        const geptWords = ["book", "apple", "banana", "cat", "dog", "good", "difficult", "easy", "used to", "look forward to", "take off", "give up", "so...that", "too...to", "be used to", "look for", "make", "anger", "company"];
+
+        const posTranslation = {
+            "noun": { short: "n.", zh: "名詞" },
+            "verb": { short: "v.", zh: "動詞" },
+            "adjective": { short: "adj.", zh: "形容詞" },
+            "adverb": { short: "adv.", zh: "副詞" },
+            "pronoun": { short: "pron.", zh: "代名詞" },
+            "preposition": { short: "prep.", zh: "介系詞" },
+            "conjunction": { short: "conj.", zh: "連接詞" },
+            "interjection": { short: "int.", zh: "感嘆詞" },
+            "phrase": { short: "phr.", zh: "片語" }
+        };
+
+        let currentAudioUrl = '';
+        let searchHistory = [];
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') searchWord();
+        }
+
+        function toggleClearButton() {
+            const input = document.getElementById('searchInput');
+            const clearBtn = document.getElementById('clearBtn');
+            if (input.value.length > 0) {
+                clearBtn.classList.remove('hidden');
+            } else {
+                clearBtn.classList.add('hidden');
+            }
+        }
+
+        function clearSearchInput() {
+            const input = document.getElementById('searchInput');
+            input.value = '';
+            toggleClearButton();
+            input.focus();
+        }
+
+        function addWordToHistory(word) {
+            searchHistory = searchHistory.filter(w => w.toLowerCase() !== word.toLowerCase());
+            searchHistory.unshift(word);
+            if (searchHistory.length > 16) {
+                searchHistory.pop();
+            }
+            renderHistory();
+        }
+
+        function renderHistory() {
+            const section = document.getElementById('historySection');
+            const list = document.getElementById('historyList');
+            if (searchHistory.length === 0) {
+                section.classList.add('hidden');
+                return;
+            }
+            section.classList.remove('hidden');
+            list.innerHTML = searchHistory.map(word => {
+                const safeWord = word.replace(/'/g, "\\'");
+                return `
+                    <div class="bg-gray-50 hover:bg-blue-50/50 border border-gray-200 hover:border-[#005cac] px-3 py-2 rounded-lg text-sm text-center font-bold text-[#333] transition-all cursor-pointer shadow-sm truncate" onclick="loadHistoryWord('${safeWord}')" title="${word}">
+                        ${word}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function clearHistory() {
+            searchHistory = [];
+            renderHistory();
+        }
+
+        function loadHistoryWord(word) {
+            const input = document.getElementById('searchInput');
+            input.value = word;
+            toggleClearButton();
+            searchWord();
+        }
+
+        function playAudio(word) {
+            if (currentAudioUrl) {
+                const audio = new Audio(currentAudioUrl);
+                audio.play();
+            } else {
+                const utterance = new SpeechSynthesisUtterance(word);
+                utterance.lang = 'en-US';
+                utterance.rate = 0.9;
+                window.speechSynthesis.speak(utterance);
+            }
+        }
+
+        function ipaToKk(ipa) {
+            if (!ipa) return '需查證';
+            let kk = ipa.replace(/[\/\[\]]/g, '');
+            kk = kk.replace(/ˈ/g, 'ˋ').replace(/ˌ/g, 'ˌ');
+            kk = kk.replace(/eɪ/g, 'e').replace(/əʊ|oʊ/g, 'o').replace(/aɪ/g, 'aɪ').replace(/aʊ/g, 'aʊ').replace(/ɔɪ/g, 'ɔɪ');
+            kk = kk.replace(/iː|i/g, 'i').replace(/uː|u/g, 'u').replace(/ɑː|ɒ|ɑ/g, 'ɑ').replace(/ɔː|ɔ/g, 'ɔ');
+            kk = kk.replace(/ɜːr|ɜː|ɜr/g, 'ɝ').replace(/ər/g, 'ɚ');
+            kk = kk.replace(/æ/g, 'æ').replace(/e|ɛ/g, 'ɛ').replace(/ɪ/g, 'ɪ').replace(/ʊ/g, 'ʊ').replace(/ʌ/g, 'ʌ').replace(/ə/g, 'ə');
+            kk = kk.replace(/tʃ/g, 'tʃ').replace(/dʒ/g, 'dʒ').replace(/ʃ/g, 'ʃ').replace(/ʒ/g, 'ʒ').replace(/θ/g, 'θ').replace(/ð/g, 'ð').replace(/ŋ/g, 'ŋ').replace(/j/g, 'j');
+            return `[${kk}]`;
+        }
+
+        function highlightKeyword(text, keyword) {
+            if (!keyword || !text) return text;
+            const safeKeyword = keyword.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&').split(/\s+/)[0];
+            const regex = new RegExp('(' + safeKeyword + '[a-zA-Z]*)', 'gi');
+            return text.replace(regex, '<span class="yahoo-red">$1</span>');
+        }
+
+        // 台灣學生在地化用語與翻譯修正轉換機制
+        function localizeToTaiwan(text) {
+            if (!text) return '';
+            const localizedMap = {
+                '西蘭花': '綠花椰菜',
+                '青花菜': '綠花椰菜',
+                '西紅柿': '番茄',
+                '土豆': '馬鈴薯',
+                '公交車': '公車',
+                '地鐵': '捷運',
+                '出租車': '計程車',
+                '視頻': '影片',
+                '軟件': '軟體',
+                '硬盤': '硬碟',
+                '數碼': '數位',
+                '屏幕': '螢幕',
+                '伙伴': '夥伴',
+                '別再難為情了': '別再鬧彆扭了',
+                '不要難為情': '不要鬧彆扭',
+                '難為情': '鬧彆扭'
+            };
+            let result = text;
+            for (const [key, value] of Object.entries(localizedMap)) {
+                result = result.replace(new RegExp(key, 'g'), value);
+            }
+            return result;
+        }
+
+        // 智慧型中文翻譯過濾機制
+        function filterCommonMeanings(meanings, isSingleWord) {
+            if (!meanings) return [];
+            let filtered = meanings;
+            if (isSingleWord) {
+                filtered = meanings.filter(m => {
+                    if (m.length >= 5) return false;
+                    if (/^[怫恚忾忿窳甔甖]$/.test(m)) return false;
+                    return true;
+                });
+                if (filtered.length === 0 && meanings.length > 0) {
+                    filtered = [meanings[0]];
+                }
+            }
+            return filtered.slice(0, 3);
+        }
+
+        async function translateSentence(enText) {
+            try {
+                const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-TW&dt=t&q=${encodeURIComponent(enText)}`;
+                const res = await fetch(url);
+                const data = await res.json();
+                const rawText = data[0].map(segment => segment[0]).join('');
+                return localizeToTaiwan(rawText);
+            } catch (e) {
+                return "（翻譯載入失敗）";
+            }
+        }
+
+        async function searchWord() {
+            const input = document.getElementById('searchInput').value.trim();
+            if (!input) return;
+
+            document.getElementById('resultContainer').classList.add('hidden');
+            document.getElementById('errorState').classList.add('hidden');
+            document.getElementById('loadingState').classList.remove('hidden');
+            currentAudioUrl = '';
+
+            let mode = 'word';
+            if (input.includes('...') || input.toLowerCase().includes('used to') || input.toLowerCase().includes('too') && input.toLowerCase().includes('to')) {
+                mode = 'grammar';
+            } else if (input.split(/\s+/).length > 1) {
+                mode = 'phrase';
+            }
+
+            try {
+                let finalKK = '進度查詢中';
+                let apiExamples = {};
+
+                if (mode === 'word' || mode === 'phrase') {
+                    const firstWord = input.split(/\s+/)[0];
+                    try {
+                        const dictRes = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(firstWord)}`);
+                        if (dictRes.ok) {
+                            const dictData = await dictRes.json();
+                            let ipa = '';
+                            
+                            if (dictData[0].phonetics) {
+                                for (const p of dictData[0].phonetics) {
+                                    if (p.text && !ipa) ipa = p.text;
+                                    if (p.audio && !currentAudioUrl) currentAudioUrl = p.audio;
+                                }
+                            }
+                            if (!ipa && dictData[0].phonetic) ipa = dictData[0].phonetic;
+                            finalKK = ipa ? ipaToKk(ipa) : '需查證';
+
+                            if (dictData[0].meanings) {
+                                dictData[0].meanings.forEach(m => {
+                                    const posShort = posTranslation[m.partOfSpeech]?.short || "ext.";
+                                    if (!apiExamples[posShort]) apiExamples[posShort] = [];
+                                    
+                                    m.definitions.forEach(def => {
+                                        if (def.example && apiExamples[posShort].length < 2) {
+                                            apiExamples[posShort].push(def.example);
+                                        }
+                                    });
+                                });
+                            }
+                        }
+                    } catch (e) { finalKK = '需查證'; }
+                }
+
+                // 引擎 B: 抓字典中文翻譯
+                const gtUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-TW&dt=t&dt=bd&q=${encodeURIComponent(input)}`;
+                const gtResponse = await fetch(gtUrl);
+                const gtData = await gtResponse.json();
+
+                let convertToTw = (text) => text;
+                try {
+                    if (typeof OpenCC !== 'undefined') {
+                        const openCcConverter = OpenCC.Converter({ from: 'cn', to: 'tw' });
+                        convertToTw = (text) => localizeToTaiwan(openCcConverter(text));
+                    }
+                } catch (e) { console.warn("OpenCC load failed"); }
+
+                // 核心優先翻譯強實化演算法：強行保證最直覺的單字主翻譯絕對在第一位！
+                const primaryTranslation = convertToTw(gtData[0]?.[0]?.[0] || "").trim();
+
+                let posGroups = [];
+                let posSummary = "n. / v.";
+
+                // 本地教科書完美對照資料庫
+                const localDb = {
+                    "book": { 
+                        collocations: { 
+                            "n.": ["read a book 看書", "comic book 漫畫書"], 
+                            "v.": ["book a table 訂位", "book a flight 訂機票"] 
+                        } 
+                    },
+                    "difficult": {
+                        posData: {
+                            "adj.": {
+                                meanings: ["困難的", "難懂的", "不易相處的"],
+                                examples: [
+                                    { en: "English is not as difficult as you think.", zh: "英文沒有你想像中那麼困難。" },
+                                    { en: "Stop being difficult and eat your broccoli—you know it's good for you.", zh: "別再鬧彆扭了，吃點綠花椰菜吧——你知道這對你有好處。" }
+                                ],
+                                collocations: ["difficult decision 艱難的決定", "difficult task 困難的任務"]
+                            }
+                        },
+                        note: "⭐ GEPT 初級 & 國中必考！同時有『困難』與『鬧彆扭、不合作』的意思。"
+                    },
+                    "company": {
+                        posData: {
+                            "n.": {
+                                meanings: ["公司", "陪伴", "夥伴"],
+                                examples: [
+                                    { en: "He works for a technology company.", zh: "他在一家科技公司上班。" },
+                                    { en: "I enjoy your company.", zh: "我喜歡你的陪伴。" }
+                                ],
+                                collocations: ["keep company 陪伴", "parent company 母公司", "software company 軟體公司"]
+                            }
+                        },
+                        note: "⭐ 國中會考與 GEPT 常用核心單字！注意當『公司』時是可數名詞，當『陪伴』時是不可數名詞。"
+                    },
+                    "take off": { breakdown: "take (拿、取) + off (離開、脫離) = 移開或離開某個表面，引申為脫掉或起飛。" },
+                    "used to": { explanation: "表示『過去習慣如此，但現在已經不這樣了』。後面一定要接【原形動詞 (V)】。", examples: [{en: "I used to swim every morning.", zh: "我以前每天早上都去游泳。"}], mistakes: "❌ 常把 be used to (習慣於) 與 used to (過去經常) 搞混。" },
+                    "so...that": { explanation: "表示『如此……以至於……』。so 後接形容詞或副詞，that 後接完整的句子。", examples: [{en: "He was so tired that he fell asleep immediately.", zh: "他是如此地疲累，以至於立刻睡著了。"}], mistakes: "❌ 常犯錯誤：that 後面的子句不可以漏掉主詞。" }
+                };
+                
+                const matchKey = Object.keys(localDb).find(k => input.toLowerCase().includes(k)) || "";
+                const extData = localDb[matchKey] || {};
+
+                if (gtData[1]) {
+                    for (let i = 0; i < gtData[1].length; i++) {
+                        const g = gtData[1][i];
+                        const posRaw = g[0];
+                        let meaningsRaw = g[1].map(m => convertToTw(m));
+                        
+                        // 套用過濾
+                        meaningsRaw = filterCommonMeanings(meaningsRaw, mode === 'word');
+
+                        const posInfo = posTranslation[posRaw] || { short: posRaw.substring(0,4) + ".", zh: convertToTw(posRaw) };
+                        const posShort = posInfo.short;
+                        
+                        let finalExamples = [];
+                        
+                        if (apiExamples[posShort] && apiExamples[posShort].length > 0) {
+                            for (const enEx of apiExamples[posShort]) {
+                                const zhEx = await translateSentence(enEx);
+                                finalExamples.push({ en: enEx, zh: convertToTw(zhEx) });
+                            }
+                        }
+
+                        const cols = extData.collocations && extData.collocations[posShort] ? extData.collocations[posShort] : null;
+
+                        posGroups.push({
+                            pos: posShort,
+                            posName: posInfo.zh,
+                            summary: meaningsRaw.slice(0, 3).join("；"),
+                            meanings: meaningsRaw,
+                            examples: finalExamples,
+                            collocations: cols
+                        });
+                    }
+                    posSummary = posGroups.map(g => g.pos).join(" / ");
+                } else if (gtData[0]) {
+                    const translatedText = convertToTw(gtData[0][0][0]);
+                    posGroups.push({
+                        pos: mode === 'phrase' ? 'phr.' : 'grammar',
+                        posName: "翻譯",
+                        summary: translatedText,
+                        meanings: [translatedText],
+                        examples: extData.examples || [],
+                        collocations: null
+                    });
+                    posSummary = posGroups[0].pos;
+                }
+
+                // 套用「首要翻譯強實化演算法」：如果 Google 核心直覺翻譯與詞性解釋不符，強行補正到第一個詞性的最前面
+                if (mode === 'word' && posGroups.length > 0 && primaryTranslation) {
+                    let isPrimaryFound = false;
+                    posGroups.forEach(group => {
+                        if (group.meanings.some(m => m === primaryTranslation || m.includes(primaryTranslation) || primaryTranslation.includes(m))) {
+                            isPrimaryFound = true;
+                            // 移至最前
+                            group.meanings = group.meanings.filter(m => m !== primaryTranslation);
+                            group.meanings.unshift(primaryTranslation);
+                        }
+                    });
+
+                    // 若全部詞性都沒有這個最直覺的核心詞，強行塞進第一個詞性的最前面 (例如 company ➔ 公司)
+                    if (!isSingleWordTranslationMatched(posGroups, primaryTranslation)) {
+                        posGroups[0].meanings = posGroups[0].meanings.filter(m => m !== primaryTranslation);
+                        posGroups[0].meanings.unshift(primaryTranslation);
+                        posGroups[0].summary = posGroups[0].meanings.slice(0, 3).join("；");
+                    }
+                }
+
+                // 整合本地完美資料庫 (如果有精準配對，如 company, difficult，則直接以精準資料庫覆蓋)
+                if (extData.posData) {
+                    posGroups.forEach(group => {
+                        const localPos = extData.posData[group.pos];
+                        if (localPos) {
+                            group.meanings = localPos.meanings;
+                            group.examples = localPos.examples;
+                            group.collocations = localPos.collocations;
+                            group.summary = localPos.meanings.slice(0, 3).join("；");
+                        }
+                    });
+                }
+
+                renderFormattedResult(mode, input, finalKK, posGroups, extData);
+                addWordToHistory(input);
+                toggleClearButton();
+
+            } catch (error) {
+                document.getElementById('loadingState').classList.add('hidden');
+                document.getElementById('errorState').classList.remove('hidden');
+                document.getElementById('errorMessage').textContent = "檢索失敗，請檢查網路連線。";
+            }
+        }
+
+        // 輔助檢查主翻譯是否已被包含
+        function isSingleWordTranslationMatched(posGroups, primaryText) {
+            for (let g of posGroups) {
+                for (let m of g.meanings) {
+                    if (m.includes(primaryText) || primaryText.includes(m)) return true;
+                }
+            }
+            return false;
+        }
+
+        function renderFormattedResult(mode, query, kk, posGroups, extData) {
+            const container = document.getElementById('resultContainer');
+            const safeKeyword = query.replace(/'/g, "\\'");
+            const isGept = geptWords.some(w => query.toLowerCase().includes(w));
+            const yahooUrl = `https://tw.dictionary.search.yahoo.com/search?p=${encodeURIComponent(query)}`;
+            
+            const globalNote = extData.note || (isGept ? "⭐ GEPT 初級 / 國中必考常見字彙，請務必熟記。" : "");
+
+            let html = '';
+
+            if (mode === 'word' || mode === 'phrase') {
+                const modeLabel = mode === 'word' ? '📌 A. 單字模式（word）' : '📌 B. 片語模式（phrasal verb / idiom）';
+                
+                html = `
+                    <div class="yahoo-card p-6 sm:p-8 space-y-6">
+                        <div><span class="font-bold text-gray-500 text-sm tracking-wide">${modeLabel}</span></div>
+                        <div class="text-[28px] font-bold text-black">📖 ${mode === 'word' ? '單字' : '片語'}：<span class="font-normal">${query}</span></div>
+                        <div class="text-[16px] text-gray-700 flex items-center gap-4 flex-wrap">
+                            <span>🔤 KK音標：<span class="text-blue-600 font-medium">${kk}</span></span>
+                            <button onclick="playAudio('${safeKeyword}')" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 transition-colors">
+                                🔊 發音 (點擊播放)
+                            </button>
+                        </div>
+
+                        <!-- 簡明總覽 -->
+                        <div class="bg-gray-50/50 rounded p-4 border border-gray-100 space-y-2 mb-4">
+                            ${posGroups.map(g => `
+                                <div class="flex items-center gap-3 text-[15px]">
+                                    <span class="yahoo-badge">${g.pos}</span>
+                                    <span class="text-[#222] font-medium">${g.summary}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+
+                        ${mode === 'phrase' && extData.breakdown ? `
+                            <div>
+                                <div class="font-bold text-[16px] mb-2">🌱 拆解說明：</div>
+                                <p class="text-[15px] text-gray-700 ml-2 leading-relaxed">${extData.breakdown}</p>
+                            </div>
+                        ` : ''}
+
+                        <!-- 詳細釋義與例句 -->
+                        <div class="border-t border-gray-200 pt-6">
+                            <div class="text-lg font-bold text-[#005cac] mb-6">詳細解析</div>
+                            ${posGroups.map((group, index) => {
+                                return `
+                                    <div class="${index !== posGroups.length - 1 ? 'mb-8 border-b border-gray-100 pb-8' : ''}">
+                                        <div class="flex items-center gap-3 mb-4">
+                                            <span class="yahoo-badge">${group.pos}</span>
+                                            <span class="text-[#333] font-bold text-[16px]">${group.posName}</span>
+                                        </div>
+                                        
+                                        <div class="mb-4">
+                                            <div class="font-bold text-[15px] text-gray-700 mb-2">🇹🇼 中文意思：</div>
+                                            <ol class="list-decimal list-outside ml-6 space-y-1.5 text-[15px] text-gray-800">
+                                                ${group.meanings.map(m => `<li>${m}</li>`).join('')}
+                                            </ol>
+                                        </div>
+
+                                        ${group.examples && group.examples.length > 0 ? `
+                                            <div class="mb-4">
+                                                <div class="font-bold text-[15px] text-gray-700 mb-2">📚 英文例句：</div>
+                                                <div class="bg-gray-50 p-4 rounded border border-gray-100 space-y-3">
+                                                    ${group.examples.map(ex => `
+                                                        <div>
+                                                            <div class="text-black font-medium leading-relaxed">${highlightKeyword(ex.en, query)}</div>
+                                                            <div class="text-gray-600 text-sm mt-1">${ex.zh}</div>
+                                                        </div>
+                                                    `).join('')}
+                                                </div>
+                                            </div>
+                                        ` : ''}
+
+                                        ${group.collocations && group.collocations.length > 0 ? `
+                                            <div>
+                                                <div class="font-bold text-[15px] text-gray-700 mb-2">🌱 常見搭配：</div>
+                                                <ul class="list-disc list-inside space-y-1 text-[15px] text-gray-700 ml-2">
+                                                    ${group.collocations.map(c => `<li>${c}</li>`).join('')}
+                                                </ul>
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                        
+                        ${globalNote ? `
+                        <div class="bg-amber-50 border border-amber-200 p-4 rounded text-amber-900 text-[15px] mt-6">
+                            <div class="font-bold mb-1">⭐ 學習提醒：</div>
+                            <div>${globalNote}</div>
+                        </div>` : ''}
+
+                        <div class="pt-4 mt-6 border-t border-gray-100">
+                            <a href="${yahooUrl}" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:text-blue-800 text-[15px] font-medium flex items-center gap-1">
+                                🔗 Yahoo奇摩字典：<span class="underline">${yahooUrl}</span>
+                            </a>
+                        </div>
+                    </div>
+                `;
+            }
+            else if (mode === 'grammar') {
+                const targetGrammar = extData.explanation ? extData : {
+                    explanation: "此為特殊文法結構或固定用法。",
+                    examples: [],
+                    mistakes: ""
+                };
+                
+                html = `
+                    <div class="yahoo-card p-6 sm:p-8 space-y-6">
+                        <div><span class="font-bold text-gray-500 text-sm tracking-wide">📌 C. 文法模式（grammar）</span></div>
+                        <div class="text-[28px] font-bold text-black">📖 文法：<span class="font-normal">${query}</span></div>
+                        <div class="text-[16px] text-gray-700 flex items-center gap-4 flex-wrap">
+                            <span class="grammar-badge">grammar structure</span>
+                        </div>
+                        <div class="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r">
+                            <div class="font-bold text-[16px] text-blue-900 mb-1">📘 用法說明：</div>
+                            <p class="text-[15px] text-blue-950 leading-relaxed">${targetGrammar.explanation}</p>
+                        </div>
+                        
+                        ${targetGrammar.examples.length > 0 ? `
+                        <div>
+                            <div class="font-bold text-[16px] mb-2">📚 例句：</div>
+                            <div class="bg-gray-50 p-4 rounded border border-gray-100 space-y-2">
+                                ${targetGrammar.examples.map(ex => `
+                                    <div>
+                                        <div class="text-black font-medium">${highlightKeyword(ex.en, query)}</div>
+                                        <div class="text-gray-600 text-sm mt-0.5">${ex.zh}</div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                        ` : ''}
+
+                        ${targetGrammar.mistakes ? `
+                        <div class="bg-red-50 border border-red-100 p-4 rounded text-red-900 text-[15px]">
+                            <div class="font-bold mb-1">⚠️ 常見錯誤：</div>
+                            <p class="leading-relaxed">${targetGrammar.mistakes}</p>
+                        </div>
+                        ` : ''}
+
+                        ${globalNote ? `
+                        <div class="bg-amber-50 border border-amber-200 p-4 rounded text-amber-900 text-[15px]">
+                            <div class="font-bold mb-1">⭐ 學習提醒：</div>
+                            <p>${globalNote}</p>
+                        </div>` : ''}
+                        
+                        <div class="pt-4 border-t border-gray-100">
+                            <a href="${yahooUrl}" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:text-blue-800 text-[15px] font-medium flex items-center gap-1">
+                                🔗 Yahoo奇摩字典：<span class="underline">${yahooUrl}</span>
+                            </a>
+                        </div>
+                    </div>
+                `;
+            }
+
+            container.innerHTML = html;
+            document.getElementById('loadingState').classList.add('hidden');
+            container.classList.remove('hidden');
+        }
+    </script>
+</body>
+</html>
